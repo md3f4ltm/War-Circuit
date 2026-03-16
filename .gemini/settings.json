@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "unity-tools": {
+      "command": "node",
+      "args": [
+        "/home/micael/Documents/War-Circuit/Packages/com.codergamester.mcp-unity/Server~/build/index.js"
+      ]
+    }
+  }
+}
