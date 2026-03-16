@@ -8,7 +8,7 @@ public class PlayerController : MonoBehaviour
     public float moveSpeed = 5f;
     public float runSpeed = 8f;
     public float turnSmoothTime = 0.1f;
-    public float gravity = -25f;
+    public float gravity = -50f;
     public float jumpHeight = 1.6f;
     public float groundedOffset = 0.2f;
     public float groundedRadius = 0.35f;
@@ -248,7 +248,7 @@ public class PlayerController : MonoBehaviour
         isDead = true;
         currentHealth = 0;
         PlayAnimation(DieAnim, 0.05f);
-        
+
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
     }
@@ -336,7 +336,7 @@ public class PlayerController : MonoBehaviour
             deadStyle.normal.textColor = Color.red;
             deadStyle.fontStyle = FontStyle.Bold;
             deadStyle.alignment = TextAnchor.MiddleCenter;
-            
+
             GUI.Label(new Rect(0, 0, Screen.width, Screen.height), "YOU DIED\nPress 'R' to Restart", deadStyle);
         }
 
