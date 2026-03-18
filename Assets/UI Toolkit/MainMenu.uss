@@ -1,0 +1,90 @@
+:root {
+    color: rgb(244, 236, 223);
+}
+
+#page {
+    flex-grow: 1;
+    align-items: center;
+    justify-content: center;
+    background-color: rgb(92, 126, 104);
+}
+
+#sun-glow {
+    position: absolute;
+    right: 8%;
+    top: 10%;
+    width: 260px;
+    height: 260px;
+    border-radius: 130px;
+    background-color: rgba(255, 223, 176, 0.14);
+}
+
+#menu-shell {
+    width: 520px;
+    max-width: 90%;
+    padding: 30px 34px 28px;
+    border-top-left-radius: 28px;
+    border-top-right-radius: 56px;
+    border-bottom-right-radius: 28px;
+    border-bottom-left-radius: 56px;
+    background-color: rgba(17, 26, 31, 0.78);
+    border-left-width: 3px;
+    border-top-width: 1px;
+    border-right-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgb(255, 210, 140);
+    border-top-color: rgba(255, 255, 255, 0.18);
+    border-right-color: rgba(255, 255, 255, 0.12);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+#eyebrow {
+    margin-bottom: 10px;
+    font-size: 18px;
+    letter-spacing: 2px;
+    color: rgb(255, 210, 140);
+}
+
+#title {
+    margin-bottom: 8px;
+    font-size: 44px;
+    -unity-font-style: bold;
+    white-space: normal;
+}
+
+#subtitle {
+    margin-bottom: 24px;
+    font-size: 17px;
+    color: rgba(244, 236, 223, 0.85);
+    white-space: normal;
+}
+
+#button-row {
+    flex-direction: row;
+    margin-bottom: 18px;
+}
+
+#play-button,
+#quit-button {
+    min-width: 150px;
+    height: 52px;
+    margin-right: 14px;
+    border-radius: 18px;
+    font-size: 20px;
+    -unity-font-style: bold;
+    color: rgb(31, 31, 26);
+    background-color: rgb(255, 210, 140);
+    border-width: 0;
+}
+
+#quit-button {
+    margin-right: 0;
+    color: rgb(244, 236, 223);
+    background-color: rgb(73, 88, 98);
+}
+
+#hint {
+    font-size: 14px;
+    color: rgba(244, 236, 223, 0.7);
+    white-space: normal;
+}

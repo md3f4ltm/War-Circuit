@@ -8,12 +8,43 @@ public class EnemyController : MonoBehaviour
     public float attackRange = 2.0f;
     public float attackCooldown = 1.6f;
     public float attackDamage = 5f;
+    public float attackAnimationDuration = 0.8f;
     public float rotationSpeed = 8f;
-    private const string IdleAnim = "Idle_Battle_SwordAndShiled";
-    private const string MoveAnim = "MoveFWD_Normal_InPlace_SwordAndShield";
-    private const string AttackAnim = "Attack01_SwordAndShiled";
-    private const string HitAnim = "GetHit01_SwordAndShield";
-    private const string DieAnim = "Die01_SwordAndShield";
+    public float modelForwardOffset = 0f;
+
+    private static readonly string[] IdleAnimCandidates =
+    {
+        "Idle",
+        "Idle_Battle_SwordAndShiled",
+        "rig_Anim,Idle"
+    };
+
+    private static readonly string[] MoveAnimCandidates =
+    {
+        "Walk",
+        "MoveFWD_Normal_InPlace_SwordAndShield",
+        "rig_Anim_WALK"
+    };
+
+    private static readonly string[] AttackAnimCandidates =
+    {
+        "Attack",
+        "Attack01_SwordAndShiled",
+        "rig_Anim_Attack_01"
+    };
+
+    private static readonly string[] HitAnimCandidates =
+    {
+        "GetHit01_SwordAndShield",
+        "rig_Anim,Idle"
+    };
+
+    private static readonly string[] DieAnimCandidates =
+    {
+        "Die",
+        "Die01_SwordAndShield",
+        "rig_Anim_Die"
+    };
 
     private float maxHealth;
     private NavMeshAgent agent;
@@ -25,6 +56,11 @@ public class EnemyController : MonoBehaviour
     private bool isDead = false;
     private float lastAttackTime = 0f;
     private string currentAnimation = string.Empty;
+    private string idleAnim = string.Empty;
+    private string moveAnim = string.Empty;
+    private string attackAnim = string.Empty;
+    private string hitAnim = string.Empty;
+    private string dieAnim = string.Empty;
 
 
     void Start()
@@ -35,11 +71,17 @@ public class EnemyController : MonoBehaviour
         }
         maxHealth = health;
         agent = GetComponent<NavMeshAgent>();
-        animator = GetComponentInChildren<Animator>();
+        agent.updateRotation = false;
+        animator = ResolveAnimator();
 
         if (animator != null)
         {
             animator.applyRootMotion = false;
+            idleAnim = ResolveAnimationName(IdleAnimCandidates);
+            moveAnim = ResolveAnimationName(MoveAnimCandidates);
+            attackAnim = ResolveAnimationName(AttackAnimCandidates);
+            hitAnim = ResolveAnimationName(HitAnimCandidates, idleAnim);
+            dieAnim = ResolveAnimationName(DieAnimCandidates);
         }
 
         GameObject playerObj = GameObject.FindWithTag("Player");
@@ -81,15 +123,18 @@ public class EnemyController : MonoBehaviour
 
             Vector3 direction = (player.position - transform.position).normalized;
             direction.y = 0;
-            if (direction != Vector3.zero)
-            {
-                transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(direction), Time.deltaTime * rotationSpeed);
-            }
+            RotateTowards(direction);
 
-            if (Time.time - lastAttackTime >= attackCooldown)
+            float timeSinceLastAttack = Time.time - lastAttackTime;
+
+            if (timeSinceLastAttack < attackAnimationDuration)
+            {
+                PlayAnimation(attackAnim, 0.05f);
+            }
+            else if (timeSinceLastAttack >= attackCooldown)
             {
                 lastAttackTime = Time.time;
-                PlayAnimation(AttackAnim, 0.08f);
+                PlayAnimation(attackAnim, 0.08f, true);
 
                 if (playerController != null)
                 {
@@ -98,21 +143,22 @@ public class EnemyController : MonoBehaviour
             }
             else
             {
-                PlayAnimation(IdleAnim, 0.12f);
+                PlayAnimation(idleAnim, 0.12f);
             }
         }
         else
         {
             agent.isStopped = false;
             agent.SetDestination(player.position);
+            RotateTowards(agent.desiredVelocity);
 
             if (agent.velocity.magnitude > 0.1f)
             {
-                PlayAnimation(MoveAnim, 0.12f);
+                PlayAnimation(moveAnim, 0.12f);
             }
             else
             {
-                PlayAnimation(IdleAnim, 0.12f);
+                PlayAnimation(idleAnim, 0.12f);
             }
         }
     }
@@ -122,7 +168,7 @@ public class EnemyController : MonoBehaviour
         if (isDead) return;
 
         health -= damage;
-        PlayAnimation(HitAnim, 0.05f);
+        PlayAnimation(hitAnim, 0.05f, true);
 
         if (health <= 0)
         {
@@ -139,7 +185,7 @@ public class EnemyController : MonoBehaviour
         Collider coll = GetComponent<Collider>();
         if (coll != null) coll.enabled = false;
 
-        PlayAnimation(DieAnim, 0.05f);
+        PlayAnimation(dieAnim, 0.05f, true);
 
         Destroy(gameObject, 3f);
 
@@ -149,14 +195,164 @@ public class EnemyController : MonoBehaviour
         }
     }
 
-    void PlayAnimation(string stateName, float transitionDuration)
+    void RotateTowards(Vector3 direction)
     {
-        if (animator == null || currentAnimation == stateName)
+        direction.y = 0f;
+        if (direction.sqrMagnitude <= 0.0001f)
         {
             return;
         }
 
-        animator.CrossFade(stateName, transitionDuration);
-        currentAnimation = stateName;
+        Quaternion targetRotation = Quaternion.LookRotation(direction.normalized) * Quaternion.Euler(0f, modelForwardOffset, 0f);
+        transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * rotationSpeed);
+    }
+
+    Animator ResolveAnimator()
+    {
+        Animator[] animators = GetComponentsInChildren<Animator>(true);
+        Animator preferredAnimator = null;
+
+        foreach (Animator candidate in animators)
+        {
+            if (candidate == null)
+            {
+                continue;
+            }
+
+            if (candidate.transform == transform)
+            {
+                preferredAnimator = candidate;
+                break;
+            }
+
+            preferredAnimator ??= candidate;
+        }
+
+        foreach (Animator candidate in animators)
+        {
+            if (candidate == null)
+            {
+                continue;
+            }
+
+            candidate.enabled = candidate == preferredAnimator;
+        }
+
+        return preferredAnimator;
+    }
+
+    void PlayAnimation(string stateName, float transitionDuration, bool restartIfSame = false)
+    {
+        if (animator == null || string.IsNullOrEmpty(stateName))
+        {
+            return;
+        }
+
+        if (restartIfSame && currentAnimation == stateName)
+        {
+            if (TryPlayFromStart(stateName))
+            {
+                return;
+            }
+        }
+
+        if (currentAnimation == stateName)
+        {
+            if (HasCurrentAnimationFinished() && TryPlayFromStart(stateName))
+            {
+                return;
+            }
+
+            return;
+        }
+
+        if (TryCrossFade(stateName, transitionDuration))
+        {
+            currentAnimation = stateName;
+        }
+    }
+
+    bool TryCrossFade(string stateName, float transitionDuration)
+    {
+        int shortHash = Animator.StringToHash(stateName);
+        if (animator.HasState(0, shortHash))
+        {
+            animator.CrossFade(shortHash, transitionDuration, 0);
+            return true;
+        }
+
+        string fullPath = $"Base Layer.{stateName}";
+        int fullHash = Animator.StringToHash(fullPath);
+        if (animator.HasState(0, fullHash))
+        {
+            animator.CrossFade(fullHash, transitionDuration, 0);
+            return true;
+        }
+
+        return false;
+    }
+
+    bool TryPlayFromStart(string stateName)
+    {
+        int shortHash = Animator.StringToHash(stateName);
+        if (animator.HasState(0, shortHash))
+        {
+            animator.Play(shortHash, 0, 0f);
+            animator.Update(0f);
+            currentAnimation = stateName;
+            return true;
+        }
+
+        int fullHash = Animator.StringToHash($"Base Layer.{stateName}");
+        if (animator.HasState(0, fullHash))
+        {
+            animator.Play(fullHash, 0, 0f);
+            animator.Update(0f);
+            currentAnimation = stateName;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool HasCurrentAnimationFinished()
+    {
+        if (animator == null || animator.IsInTransition(0))
+        {
+            return false;
+        }
+
+        AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+        return stateInfo.normalizedTime >= 1f;
+    }
+
+    string ResolveAnimationName(string[] candidates, string fallback = "")
+    {
+        foreach (string candidate in candidates)
+        {
+            if (HasAnimationState(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return fallback;
+    }
+
+    bool HasAnimationState(string stateName)
+    {
+        if (animator == null || string.IsNullOrEmpty(stateName))
+        {
+            return false;
+        }
+
+        int shortHash = Animator.StringToHash(stateName);
+        if (animator.HasState(0, shortHash))
+        {
+            return true;
+        }
+
+        int fullHash = Animator.StringToHash($"Base Layer.{stateName}");
+        return animator.HasState(0, fullHash);
     }
 }

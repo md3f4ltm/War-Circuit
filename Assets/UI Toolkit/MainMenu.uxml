@@ -1,0 +1,16 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/UI%20Toolkit/MainMenu.uss?fileID=7433441132597879392&amp;guid=821ceab4b3aa3000a824b81294a0c6e1&amp;type=3#MainMenu"/>
+    <ui:VisualElement name="page">
+        <ui:VisualElement name="sun-glow"/>
+        <ui:VisualElement name="menu-shell" style="justify-content: space-around; align-self: center;">
+            <ui:Label name="eyebrow" text="War Circuit"/>
+            <ui:Label name="title" text="Survive The Field"/>
+            <ui:Label name="subtitle" text="Stand your ground against each wave, cut through the horde, and hold the hill."/>
+            <ui:VisualElement name="button-row">
+                <ui:Button name="play-button" text="Play"/>
+                <ui:Button name="quit-button" text="Quit"/>
+            </ui:VisualElement>
+            <ui:Label name="hint" text="WASD to move, Shift to sprint, Space to jump, Left Mouse to attack"/>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

@@ -52,7 +52,9 @@ public class ThirdPersonCamera : MonoBehaviour
         Vector3 resolvedPosition = desiredPosition;
         if (Physics.Linecast(target.position + offset, desiredPosition, out RaycastHit hit))
         {
-            if (!hit.collider.CompareTag("Player") && !hit.collider.CompareTag("Enemy") && !hit.collider.isTrigger)
+            bool hitPlayer = hit.collider.CompareTag("Player");
+            bool hitEnemy = hit.collider.GetComponentInParent<EnemyController>() != null;
+            if (!hitPlayer && !hitEnemy && !hit.collider.isTrigger)
             {
                 resolvedPosition = hit.point + hit.normal * 0.15f;
             }

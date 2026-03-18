@@ -5,7 +5,7 @@ using UnityEngine.AI;
 
 public class WaveSpawner : MonoBehaviour
 {
-    public GameObject enemyPrefab;
+    public GameObject GoblinEnemy;
     public Transform player;
 
     public int currentWave = 1;
@@ -28,7 +28,7 @@ public class WaveSpawner : MonoBehaviour
 
     void StartWave()
     {
-        if (enemyPrefab == null || player == null)
+        if (GoblinEnemy == null || player == null)
         {
             Debug.LogWarning("WaveSpawner is missing required references.");
             return;
@@ -53,7 +53,7 @@ public class WaveSpawner : MonoBehaviour
 
             if (NavMesh.SamplePosition(spawnPos, out NavMeshHit hit, 10f, NavMesh.AllAreas))
             {
-                GameObject enemyObj = Instantiate(enemyPrefab, hit.position, Quaternion.identity);
+                GameObject enemyObj = Instantiate(GoblinEnemy, hit.position, Quaternion.identity);
                 EnemyController ec = enemyObj.GetComponent<EnemyController>();
                 if (ec != null)
                 {

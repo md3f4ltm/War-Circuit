@@ -8,13 +8,17 @@ public class PlayerController : MonoBehaviour
     public float moveSpeed = 5f;
     public float runSpeed = 8f;
     public float turnSmoothTime = 0.1f;
-    public float gravity = -50f;
-    public float jumpHeight = 1.6f;
-    public float groundedOffset = 0.2f;
-    public float groundedRadius = 0.35f;
+    public float gravity = -38f;
+    public float jumpHeight = 1.5f;
+    public float doubleJumpHeight = 1.25f;
+    public int maxJumpCount = 2;
+    public float doubleJumpFlipDuration = 0.45f;
+    public float doubleJumpFlipDegrees = 360f;
+    public float groundedOffset = 0.08f;
+    public float groundedRadius = 0.25f;
     public LayerMask groundLayers = ~0;
 
-    public float maxHealth = 200f;
+    public float maxHealth = 220f;
     public float attackDuration = 0.6f;
     public float attackRange = 2f;
     public float attackRadius = 1.6f;
@@ -26,27 +30,31 @@ public class PlayerController : MonoBehaviour
     private const string AttackAnim = "Attack01_SwordAndShiled";
     private const string HitAnim = "GetHit01_SwordAndShield";
     private const string DieAnim = "Die01_SwordAndShield";
-    private const string JumpStartAnim = "JumpStart_Normal_InPlace_SwordAndShield";
-    private const string JumpAirAnim = "JumpAir_Normal_InPlace_SwordAndShield";
-    private const string JumpLandAnim = "JumpEnd_Normal_InPlace_SwordAndShield";
+    private const string JumpAnim = "JumpFull_Normal_RM_SwordAndShield";
+    private const string DoubleJumpAnim = "JumpFull_Spin_RM_SwordAndShield";
 
     private float turnSmoothVelocity;
     private float currentHealth;
     private float attackTimer;
-    private float jumpAnimationTimer;
+    private float currentYaw;
+    private float currentPitch;
+    private float flipTimer;
     private Vector3 verticalVelocity;
     private Vector3 planarVelocity;
+    private float airborneSpeed;
 
     private CharacterController controller;
     private Animator animator;
     private Transform cam;
+    private Transform visualRoot;
+    private Quaternion visualRootBaseRotation;
 
     private bool isDead;
     private bool isAttacking;
     private bool isGrounded;
     private bool wasGroundedLastFrame;
-    private bool jumpQueued;
-    private bool hasPlayedJumpLoop;
+    private bool hasUsedAirJump;
+    private bool isPerformingFlip;
     private string currentAnimation = string.Empty;
 
     void Start()
@@ -60,6 +68,13 @@ public class PlayerController : MonoBehaviour
             animator.applyRootMotion = false;
         }
 
+        visualRoot = transform.Find("root");
+        if (visualRoot != null)
+        {
+            visualRootBaseRotation = visualRoot.localRotation;
+        }
+
+        currentYaw = transform.eulerAngles.y;
         currentHealth = maxHealth;
     }
 
@@ -82,6 +97,7 @@ public class PlayerController : MonoBehaviour
         UpdateGroundedState();
         HandleCombatState();
         HandleMovement();
+        UpdateAirRotation();
         HandleCombat();
         UpdateAnimationState();
     }
@@ -90,8 +106,8 @@ public class PlayerController : MonoBehaviour
     {
         wasGroundedLastFrame = isGrounded;
 
-        Vector3 spherePosition = transform.position + Vector3.up * groundedOffset;
-        isGrounded = Physics.CheckSphere(spherePosition, groundedRadius, groundLayers, QueryTriggerInteraction.Ignore);
+        bool controllerGrounded = controller != null && controller.isGrounded;
+        isGrounded = controllerGrounded;
 
         if (isGrounded && verticalVelocity.y < 0f)
         {
@@ -100,9 +116,10 @@ public class PlayerController : MonoBehaviour
 
         if (!wasGroundedLastFrame && isGrounded)
         {
-            hasPlayedJumpLoop = false;
-            jumpAnimationTimer = 0.18f;
-            PlayAnimation(JumpLandAnim, 0.08f);
+            hasUsedAirJump = false;
+            isPerformingFlip = false;
+            currentPitch = 0f;
+            ResetVisualRotation();
         }
     }
 
@@ -128,11 +145,36 @@ public class PlayerController : MonoBehaviour
         bool wantsJump = Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame;
         bool isRunning = runHeld && hasMoveInput && isGrounded && !isAttacking;
         float speedMultiplier = isAttacking ? 0.45f : 1f;
-        float currentSpeed = (isRunning ? runSpeed : moveSpeed) * speedMultiplier;
+        float groundedSpeed = (isRunning ? runSpeed : moveSpeed) * speedMultiplier;
 
-        if (wantsJump && isGrounded)
+        if (isGrounded)
         {
-            jumpQueued = true;
+            airborneSpeed = groundedSpeed;
+        }
+
+        bool canGroundJump = isGrounded;
+        bool canAirJump = !isGrounded && maxJumpCount > 1 && !hasUsedAirJump;
+
+        if (wantsJump && !isAttacking && (canGroundJump || canAirJump))
+        {
+            bool isDoubleJump = !canGroundJump;
+            float selectedJumpHeight = isDoubleJump ? doubleJumpHeight : jumpHeight;
+
+            if (canGroundJump)
+            {
+                airborneSpeed = groundedSpeed;
+            }
+
+            isGrounded = false;
+            if (isDoubleJump)
+            {
+                hasUsedAirJump = true;
+                isPerformingFlip = true;
+                flipTimer = doubleJumpFlipDuration;
+            }
+
+            verticalVelocity.y = Mathf.Sqrt(selectedJumpHeight * -2f * gravity);
+            PlayAnimation(isDoubleJump ? DoubleJumpAnim : JumpAnim, 0.06f);
         }
 
         Vector3 inputDirection = new Vector3(moveInput.x, 0f, moveInput.y);
@@ -141,37 +183,63 @@ public class PlayerController : MonoBehaviour
         if (moveDirection.sqrMagnitude > 0.001f)
         {
             float targetAngle = Mathf.Atan2(moveDirection.x, moveDirection.z) * Mathf.Rad2Deg;
-            float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, targetAngle, ref turnSmoothVelocity, turnSmoothTime);
-            transform.rotation = Quaternion.Euler(0f, angle, 0f);
+            currentYaw = Mathf.SmoothDampAngle(currentYaw, targetAngle, ref turnSmoothVelocity, turnSmoothTime);
         }
+        float horizontalSpeed = isGrounded ? groundedSpeed : airborneSpeed;
 
-        planarVelocity = moveDirection * currentSpeed;
-
-        if (jumpQueued)
-        {
-            jumpQueued = false;
-            isGrounded = false;
-            hasPlayedJumpLoop = false;
-            verticalVelocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-            jumpAnimationTimer = 0.12f;
-            PlayAnimation(JumpStartAnim, 0.06f);
-        }
-
-        if (!isGrounded && jumpAnimationTimer <= 0f && !hasPlayedJumpLoop)
-        {
-            hasPlayedJumpLoop = true;
-            PlayAnimation(JumpAirAnim, 0.08f);
-        }
-
-        if (jumpAnimationTimer > 0f)
-        {
-            jumpAnimationTimer -= Time.deltaTime;
-        }
+        planarVelocity = moveDirection * horizontalSpeed;
 
         verticalVelocity.y += gravity * Time.deltaTime;
 
         Vector3 finalMove = planarVelocity + Vector3.up * verticalVelocity.y;
         controller.Move(finalMove * Time.deltaTime);
+    }
+
+    void UpdateAirRotation()
+    {
+        if (isGrounded)
+        {
+            currentPitch = 0f;
+            transform.rotation = Quaternion.Euler(0f, currentYaw, 0f);
+            ResetVisualRotation();
+            return;
+        }
+
+        if (isPerformingFlip)
+        {
+            flipTimer -= Time.deltaTime;
+            float progress = 1f - Mathf.Clamp01(flipTimer / Mathf.Max(0.01f, doubleJumpFlipDuration));
+            currentPitch = Mathf.Lerp(0f, doubleJumpFlipDegrees, progress);
+
+            if (flipTimer <= 0f)
+            {
+                isPerformingFlip = false;
+                currentPitch = 0f;
+            }
+        }
+
+        transform.rotation = Quaternion.Euler(0f, currentYaw, 0f);
+        ApplyVisualRotation();
+    }
+
+    void ApplyVisualRotation()
+    {
+        if (visualRoot == null)
+        {
+            return;
+        }
+
+        visualRoot.localRotation = visualRootBaseRotation * Quaternion.Euler(currentPitch, 0f, 0f);
+    }
+
+    void ResetVisualRotation()
+    {
+        if (visualRoot == null)
+        {
+            return;
+        }
+
+        visualRoot.localRotation = visualRootBaseRotation;
     }
 
     void UpdateAnimationState()
@@ -183,12 +251,6 @@ public class PlayerController : MonoBehaviour
 
         if (!isGrounded)
         {
-            if (jumpAnimationTimer <= 0f && !hasPlayedJumpLoop)
-            {
-                hasPlayedJumpLoop = true;
-                PlayAnimation(JumpAirAnim, 0.08f);
-            }
-
             return;
         }
 
@@ -217,7 +279,7 @@ public class PlayerController : MonoBehaviour
 
             PlayAnimation(AttackAnim, 0.06f);
 
-            Vector3 attackCenter = transform.position + Vector3.up * 1f + transform.forward * attackRange;
+            Vector3 attackCenter = transform.position + Vector3.up * 1f + transform.forward * (attackRange - 0.6f);
             Collider[] hitColliders = Physics.OverlapSphere(attackCenter, attackRadius, ~0, QueryTriggerInteraction.Ignore);
             foreach (Collider hitCollider in hitColliders)
             {
@@ -304,8 +366,30 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        animator.CrossFade(stateName, transitionDuration);
-        currentAnimation = stateName;
+        if (TryCrossFade(stateName, transitionDuration))
+        {
+            currentAnimation = stateName;
+        }
+    }
+
+    bool TryCrossFade(string stateName, float transitionDuration)
+    {
+        int shortHash = Animator.StringToHash(stateName);
+        if (animator.HasState(0, shortHash))
+        {
+            animator.CrossFade(shortHash, transitionDuration, 0);
+            return true;
+        }
+
+        string fullPath = $"Base Layer.{stateName}";
+        int fullHash = Animator.StringToHash(fullPath);
+        if (animator.HasState(0, fullHash))
+        {
+            animator.CrossFade(fullHash, transitionDuration, 0);
+            return true;
+        }
+
+        return false;
     }
 
     void OnDrawGizmosSelected()
@@ -314,7 +398,7 @@ public class PlayerController : MonoBehaviour
         Gizmos.DrawWireSphere(transform.position + Vector3.up * groundedOffset, groundedRadius);
 
         Gizmos.color = Color.red;
-        Gizmos.DrawWireSphere(transform.position + Vector3.up * 1f + transform.forward * attackRange, attackRadius);
+        Gizmos.DrawWireSphere(transform.position + Vector3.up * 1f + transform.forward * (attackRange - 0.6f), attackRadius);
     }
 
     void OnGUI()
