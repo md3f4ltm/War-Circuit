@@ -9,6 +9,7 @@ public class EnemyController : MonoBehaviour
     public float attackCooldown = 1.6f;
     public float attackDamage = 5f;
     public float attackAnimationDuration = 0.8f;
+    public float attackHitDelay = 0.45f;
     public float rotationSpeed = 8f;
     public float modelForwardOffset = 0f;
 
@@ -54,6 +55,7 @@ public class EnemyController : MonoBehaviour
     private WaveSpawner waveSpawner;
 
     private bool isDead = false;
+    private bool hasAppliedAttackDamage = false;
     private float lastAttackTime = 0f;
     private string currentAnimation = string.Empty;
     private string idleAnim = string.Empty;
@@ -130,16 +132,22 @@ public class EnemyController : MonoBehaviour
             if (timeSinceLastAttack < attackAnimationDuration)
             {
                 PlayAnimation(attackAnim, 0.05f);
+
+                if (!hasAppliedAttackDamage && timeSinceLastAttack >= attackHitDelay)
+                {
+                    hasAppliedAttackDamage = true;
+
+                    if (playerController != null && distanceToPlayer <= attackRange + 0.2f)
+                    {
+                        playerController.TakeDamage(attackDamage);
+                    }
+                }
             }
             else if (timeSinceLastAttack >= attackCooldown)
             {
                 lastAttackTime = Time.time;
+                hasAppliedAttackDamage = false;
                 PlayAnimation(attackAnim, 0.08f, true);
-
-                if (playerController != null)
-                {
-                    playerController.TakeDamage(attackDamage);
-                }
             }
             else
             {

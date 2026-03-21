@@ -808,6 +808,11 @@ MonoBehaviour:
   attackRange: 2
   attackRadius: 1.6
   attackDamage: 40
+  blockMoveMultiplier: 0.35
+  blockedDamageMultiplier: 0.2
+  shieldEffectPoint: {fileID: 0}
+  shieldLoopFx: {fileID: 0}
+  shieldHitFx: {fileID: 0}
 --- !u!143 &1510556202
 CharacterController:
   m_ObjectHideFlags: 0

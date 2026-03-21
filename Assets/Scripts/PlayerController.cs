@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
+using System.Collections;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
@@ -23,11 +24,19 @@ public class PlayerController : MonoBehaviour
     public float attackRange = 2f;
     public float attackRadius = 1.6f;
     public float attackDamage = 40f;
-
+    public float blockMoveMultiplier = 0.35f;
+    public float blockedDamageMultiplier = 0.2f;
+    public float returnToMenuDelay = 3f;
+    public string mainMenuSceneName = "MainMenu";
+    public Transform shieldEffectPoint;
+    public GameObject shieldLoopFx;
+    public GameObject shieldHitFx;
     private const string IdleAnim = "Idle_Normal_SwordAndShield";
     private const string MoveAnim = "MoveFWD_Normal_InPlace_SwordAndShield";
     private const string RunAnim = "SprintFWD_Battle_InPlace_SwordAndShield";
     private const string AttackAnim = "Attack01_SwordAndShiled";
+    private const string DefendAnim = "Defend_SwordAndShield";
+    private const string DefendHitAnim = "DefendHit_SwordAndShield";
     private const string HitAnim = "GetHit01_SwordAndShield";
     private const string DieAnim = "Die01_SwordAndShield";
     private const string JumpAnim = "JumpFull_Normal_RM_SwordAndShield";
@@ -51,11 +60,14 @@ public class PlayerController : MonoBehaviour
 
     private bool isDead;
     private bool isAttacking;
+    private bool isBlocking;
     private bool isGrounded;
     private bool wasGroundedLastFrame;
     private bool hasUsedAirJump;
     private bool isPerformingFlip;
     private string currentAnimation = string.Empty;
+    private GameObject activeShieldLoopFx;
+    private Coroutine returnToMenuRoutine;
 
     void Start()
     {
@@ -74,6 +86,11 @@ public class PlayerController : MonoBehaviour
             visualRootBaseRotation = visualRoot.localRotation;
         }
 
+        shieldEffectPoint ??= FindChildRecursive(transform, "Shield08Polyart");
+        shieldEffectPoint ??= FindChildRecursive(transform, "Shield08PBR");
+        shieldEffectPoint ??= FindChildRecursive(transform, "weapon_l");
+        shieldEffectPoint ??= FindChildRecursive(transform, "hand_l");
+
         currentYaw = transform.eulerAngles.y;
         currentHealth = maxHealth;
     }
@@ -87,9 +104,16 @@ public class PlayerController : MonoBehaviour
 
         if (isDead)
         {
-            if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
+            if (Keyboard.current != null)
             {
-                SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+                if (Keyboard.current.enterKey.wasPressedThisFrame || Keyboard.current.numpadEnterKey.wasPressedThisFrame)
+                {
+                    LoadMainMenu();
+                }
+                else if (Keyboard.current.rKey.wasPressedThisFrame)
+                {
+                    SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+                }
             }
             return;
         }
@@ -125,11 +149,6 @@ public class PlayerController : MonoBehaviour
 
     void HandleCombatState()
     {
-        if (!isAttacking)
-        {
-            return;
-        }
-
         attackTimer -= Time.deltaTime;
         if (attackTimer <= 0f)
         {
@@ -143,8 +162,16 @@ public class PlayerController : MonoBehaviour
         bool hasMoveInput = moveInput.sqrMagnitude > 0.01f;
         bool runHeld = Keyboard.current != null && Keyboard.current.leftShiftKey.isPressed;
         bool wantsJump = Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame;
-        bool isRunning = runHeld && hasMoveInput && isGrounded && !isAttacking;
-        float speedMultiplier = isAttacking ? 0.45f : 1f;
+        bool isRunning = runHeld && hasMoveInput && isGrounded && !isAttacking && !isBlocking;
+        float speedMultiplier = 1f;
+        if (isAttacking)
+        {
+            speedMultiplier *= 0.45f;
+        }
+        if (isBlocking)
+        {
+            speedMultiplier *= blockMoveMultiplier;
+        }
         float groundedSpeed = (isRunning ? runSpeed : moveSpeed) * speedMultiplier;
 
         if (isGrounded)
@@ -155,7 +182,7 @@ public class PlayerController : MonoBehaviour
         bool canGroundJump = isGrounded;
         bool canAirJump = !isGrounded && maxJumpCount > 1 && !hasUsedAirJump;
 
-        if (wantsJump && !isAttacking && (canGroundJump || canAirJump))
+        if (wantsJump && !isAttacking && !isBlocking && (canGroundJump || canAirJump))
         {
             bool isDoubleJump = !canGroundJump;
             float selectedJumpHeight = isDoubleJump ? doubleJumpHeight : jumpHeight;
@@ -260,6 +287,12 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
+        if (isBlocking)
+        {
+            PlayAnimation(DefendAnim, 0.08f);
+            return;
+        }
+
         if (planarVelocity.sqrMagnitude > 0.01f)
         {
             float speed = planarVelocity.magnitude;
@@ -272,7 +305,28 @@ public class PlayerController : MonoBehaviour
 
     void HandleCombat()
     {
-        if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame && !isAttacking)
+        bool attackPressed = Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
+        bool blockHeld = Mouse.current != null && Mouse.current.rightButton.isPressed;
+
+        if (!isAttacking)
+        {
+            if (blockHeld && isGrounded)
+            {
+                if (!isBlocking)
+                {
+                    isBlocking = true;
+                    PlayAnimation(DefendAnim, 0.08f);
+                    StartShieldLoopFx();
+                }
+            }
+            else if (isBlocking)
+            {
+                isBlocking = false;
+                StopShieldLoopFx();
+            }
+        }
+
+        if (attackPressed && !isAttacking && !isBlocking)
         {
             isAttacking = true;
             attackTimer = attackDuration;
@@ -296,8 +350,17 @@ public class PlayerController : MonoBehaviour
     {
         if (isDead) return;
 
-        currentHealth -= amount;
-        PlayAnimation(HitAnim, 0.05f);
+        if (isBlocking)
+        {
+            currentHealth -= amount * blockedDamageMultiplier;
+            PlayAnimation(DefendHitAnim, 0.04f);
+            SpawnShieldHitFx();
+        }
+        else
+        {
+            currentHealth -= amount;
+            PlayAnimation(HitAnim, 0.05f);
+        }
 
         if (currentHealth <= 0)
         {
@@ -309,10 +372,33 @@ public class PlayerController : MonoBehaviour
     {
         isDead = true;
         currentHealth = 0;
+        isBlocking = false;
+        StopShieldLoopFx();
         PlayAnimation(DieAnim, 0.05f);
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+
+        if (returnToMenuRoutine != null)
+        {
+            StopCoroutine(returnToMenuRoutine);
+        }
+
+        returnToMenuRoutine = StartCoroutine(ReturnToMainMenuAfterDelay());
+    }
+
+    IEnumerator ReturnToMainMenuAfterDelay()
+    {
+        yield return new WaitForSeconds(returnToMenuDelay);
+        LoadMainMenu();
+    }
+
+    void LoadMainMenu()
+    {
+        if (!string.IsNullOrWhiteSpace(mainMenuSceneName))
+        {
+            SceneManager.LoadScene(mainMenuSceneName);
+        }
     }
 
     Vector2 ReadMoveInput()
@@ -392,6 +478,170 @@ public class PlayerController : MonoBehaviour
         return false;
     }
 
+    void StartShieldLoopFx()
+    {
+        if (shieldEffectPoint == null || activeShieldLoopFx != null)
+        {
+            return;
+        }
+
+        if (shieldLoopFx != null)
+        {
+            activeShieldLoopFx = Instantiate(shieldLoopFx, shieldEffectPoint.position, shieldEffectPoint.rotation, shieldEffectPoint);
+            return;
+        }
+
+        activeShieldLoopFx = CreateShieldLoopFx(shieldEffectPoint);
+    }
+
+    void StopShieldLoopFx()
+    {
+        if (activeShieldLoopFx == null)
+        {
+            return;
+        }
+
+        Destroy(activeShieldLoopFx);
+        activeShieldLoopFx = null;
+    }
+
+    void SpawnShieldHitFx()
+    {
+        if (shieldEffectPoint == null)
+        {
+            return;
+        }
+
+        if (shieldHitFx != null)
+        {
+            GameObject effect = Instantiate(shieldHitFx, shieldEffectPoint.position, shieldEffectPoint.rotation);
+            Destroy(effect, 1.5f);
+            return;
+        }
+
+        GameObject effectRoot = new GameObject("ShieldHitFx");
+        effectRoot.transform.SetPositionAndRotation(shieldEffectPoint.position, shieldEffectPoint.rotation);
+
+        ParticleSystem particles = effectRoot.AddComponent<ParticleSystem>();
+        var main = particles.main;
+        main.duration = 0.3f;
+        main.loop = false;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(0.12f, 0.24f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(0.8f, 2.2f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.05f, 0.12f);
+        main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.45f, 0.85f, 1f, 1f), new Color(0.95f, 0.98f, 1f, 0.7f));
+        main.maxParticles = 24;
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+        var emission = particles.emission;
+        emission.rateOverTime = 0f;
+        emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 16) });
+
+        var shape = particles.shape;
+        shape.shapeType = ParticleSystemShapeType.Cone;
+        shape.angle = 35f;
+        shape.radius = 0.08f;
+
+        var colorOverLifetime = particles.colorOverLifetime;
+        colorOverLifetime.enabled = true;
+        Gradient gradient = new Gradient();
+        gradient.SetKeys(
+            new[]
+            {
+                new GradientColorKey(new Color(0.7f, 0.95f, 1f), 0f),
+                new GradientColorKey(new Color(0.2f, 0.65f, 1f), 1f)
+            },
+            new[]
+            {
+                new GradientAlphaKey(0.9f, 0f),
+                new GradientAlphaKey(0f, 1f)
+            });
+        colorOverLifetime.color = new ParticleSystem.MinMaxGradient(gradient);
+
+        var sizeOverLifetime = particles.sizeOverLifetime;
+        sizeOverLifetime.enabled = true;
+        sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 1f, 1f, 0f));
+
+        particles.Play();
+        Destroy(effectRoot, 1f);
+    }
+
+    GameObject CreateShieldLoopFx(Transform parent)
+    {
+        GameObject effectRoot = new GameObject("ShieldLoopFx");
+        effectRoot.transform.SetParent(parent, false);
+        effectRoot.transform.localPosition = Vector3.zero;
+        effectRoot.transform.localRotation = Quaternion.identity;
+
+        ParticleSystem particles = effectRoot.AddComponent<ParticleSystem>();
+        var main = particles.main;
+        main.duration = 1f;
+        main.loop = true;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(0.35f, 0.65f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(0.02f, 0.08f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.04f, 0.08f);
+        main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.35f, 0.75f, 1f, 0.45f), new Color(0.8f, 0.95f, 1f, 0.2f));
+        main.maxParticles = 24;
+        main.simulationSpace = ParticleSystemSimulationSpace.Local;
+
+        var emission = particles.emission;
+        emission.rateOverTime = 18f;
+
+        var shape = particles.shape;
+        shape.shapeType = ParticleSystemShapeType.Circle;
+        shape.radius = 0.18f;
+        shape.arc = 360f;
+
+        var velocityOverLifetime = particles.velocityOverLifetime;
+        velocityOverLifetime.enabled = true;
+        velocityOverLifetime.space = ParticleSystemSimulationSpace.Local;
+        velocityOverLifetime.orbitalY = new ParticleSystem.MinMaxCurve(0.35f);
+
+        var colorOverLifetime = particles.colorOverLifetime;
+        colorOverLifetime.enabled = true;
+        Gradient gradient = new Gradient();
+        gradient.SetKeys(
+            new[]
+            {
+                new GradientColorKey(new Color(0.75f, 0.95f, 1f), 0f),
+                new GradientColorKey(new Color(0.2f, 0.6f, 1f), 1f)
+            },
+            new[]
+            {
+                new GradientAlphaKey(0f, 0f),
+                new GradientAlphaKey(0.35f, 0.15f),
+                new GradientAlphaKey(0f, 1f)
+            });
+        colorOverLifetime.color = new ParticleSystem.MinMaxGradient(gradient);
+
+        particles.Play();
+        return effectRoot;
+    }
+
+    Transform FindChildRecursive(Transform parent, string childName)
+    {
+        if (parent == null)
+        {
+            return null;
+        }
+
+        foreach (Transform child in parent)
+        {
+            if (child.name == childName)
+            {
+                return child;
+            }
+
+            Transform nested = FindChildRecursive(child, childName);
+            if (nested != null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
+    }
+
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.cyan;
@@ -426,6 +676,6 @@ public class PlayerController : MonoBehaviour
 
         GUIStyle hintStyle = new GUIStyle(style);
         hintStyle.fontSize = 18;
-        GUI.Label(new Rect(20, 65, 360, 30), "WASD move  Shift sprint  Space jump  LMB attack", hintStyle);
+        GUI.Label(new Rect(20, 65, 460, 30), "WASD move  Shift sprint  Space jump  LMB attack  RMB block", hintStyle);
     }
 }
