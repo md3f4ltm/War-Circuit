@@ -41,6 +41,7 @@ public class PlayerController : MonoBehaviour
     private const string DieAnim = "Die01_SwordAndShield";
     private const string JumpAnim = "JumpFull_Normal_RM_SwordAndShield";
     private const string DoubleJumpAnim = "JumpFull_Spin_RM_SwordAndShield";
+    private const string VictoryAnim = "Victory_Battle_SwordAndShield";
 
     private float turnSmoothVelocity;
     private float currentHealth;
@@ -62,6 +63,7 @@ public class PlayerController : MonoBehaviour
     private bool isAttacking;
     private bool isBlocking;
     private bool isGrounded;
+    private bool isGameplayLocked;
     private bool wasGroundedLastFrame;
     private bool hasUsedAirJump;
     private bool isPerformingFlip;
@@ -104,17 +106,13 @@ public class PlayerController : MonoBehaviour
 
         if (isDead)
         {
-            if (Keyboard.current != null)
-            {
-                if (Keyboard.current.enterKey.wasPressedThisFrame || Keyboard.current.numpadEnterKey.wasPressedThisFrame)
-                {
-                    LoadMainMenu();
-                }
-                else if (Keyboard.current.rKey.wasPressedThisFrame)
-                {
-                    SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
-                }
-            }
+            return;
+        }
+
+        if (isGameplayLocked)
+        {
+            UpdateGroundedState();
+            HandleLockedState();
             return;
         }
 
@@ -154,6 +152,26 @@ public class PlayerController : MonoBehaviour
         {
             isAttacking = false;
         }
+    }
+
+    void HandleLockedState()
+    {
+        planarVelocity = Vector3.zero;
+        isAttacking = false;
+
+        if (isBlocking)
+        {
+            isBlocking = false;
+            StopShieldLoopFx();
+        }
+
+        if (!isGrounded)
+        {
+            verticalVelocity.y += gravity * Time.deltaTime;
+            controller.Move(Vector3.up * verticalVelocity.y * Time.deltaTime);
+        }
+
+        PlayAnimation(VictoryAnim, 0.12f);
     }
 
     void HandleMovement()
@@ -384,6 +402,12 @@ public class PlayerController : MonoBehaviour
             StopCoroutine(returnToMenuRoutine);
         }
 
+        ThirdPersonCamera sceneCamera = Camera.main != null ? Camera.main.GetComponent<ThirdPersonCamera>() : FindFirstObjectByType<ThirdPersonCamera>();
+        if (sceneCamera != null)
+        {
+            sceneCamera.SetInputLocked(true);
+        }
+
         returnToMenuRoutine = StartCoroutine(ReturnToMainMenuAfterDelay());
     }
 
@@ -398,6 +422,73 @@ public class PlayerController : MonoBehaviour
         if (!string.IsNullOrWhiteSpace(mainMenuSceneName))
         {
             SceneManager.LoadScene(mainMenuSceneName);
+        }
+    }
+
+    public void SetGameplayLocked(bool locked)
+    {
+        isGameplayLocked = locked;
+        isAttacking = false;
+
+        if (isBlocking)
+        {
+            isBlocking = false;
+            StopShieldLoopFx();
+        }
+
+        ThirdPersonCamera sceneCamera = Camera.main != null ? Camera.main.GetComponent<ThirdPersonCamera>() : FindFirstObjectByType<ThirdPersonCamera>();
+        if (sceneCamera != null)
+        {
+            sceneCamera.SetInputLocked(locked);
+        }
+
+        Cursor.lockState = locked ? CursorLockMode.None : CursorLockMode.Locked;
+        Cursor.visible = locked;
+    }
+
+    public bool IsGameplayLocked()
+    {
+        return isGameplayLocked || isDead;
+    }
+
+    public void PlayVictoryAnimation()
+    {
+        if (!isDead)
+        {
+            PlayAnimation(VictoryAnim, 0.1f);
+        }
+    }
+
+    public void Heal(float amount)
+    {
+        if (isDead || amount <= 0f)
+        {
+            return;
+        }
+
+        currentHealth = Mathf.Min(maxHealth, currentHealth + amount);
+    }
+
+    public void IncreaseMaxHealth(float amount, bool healBonus = true)
+    {
+        if (amount <= 0f)
+        {
+            return;
+        }
+
+        maxHealth += amount;
+
+        if (healBonus)
+        {
+            Heal(amount);
+        }
+    }
+
+    public void IncreaseAttackDamage(float amount)
+    {
+        if (amount > 0f)
+        {
+            attackDamage += amount;
         }
     }
 
@@ -653,6 +744,11 @@ public class PlayerController : MonoBehaviour
 
     void OnGUI()
     {
+        if (isDead)
+        {
+            return;
+        }
+
         GUIStyle style = new GUIStyle();
         style.fontSize = 24;
         style.normal.textColor = Color.white;
@@ -663,19 +759,8 @@ public class PlayerController : MonoBehaviour
         GUI.Label(new Rect(30, 25, 200, 30), $"Health: {Mathf.Ceil(currentHealth)} / {maxHealth}", style);
         GUI.color = Color.white;
 
-        if (isDead)
-        {
-            GUIStyle deadStyle = new GUIStyle();
-            deadStyle.fontSize = 64;
-            deadStyle.normal.textColor = Color.red;
-            deadStyle.fontStyle = FontStyle.Bold;
-            deadStyle.alignment = TextAnchor.MiddleCenter;
-
-            GUI.Label(new Rect(0, 0, Screen.width, Screen.height), "YOU DIED\nPress 'R' to Restart", deadStyle);
-        }
-
         GUIStyle hintStyle = new GUIStyle(style);
         hintStyle.fontSize = 18;
-        GUI.Label(new Rect(20, 65, 460, 30), "WASD move  Shift sprint  Space jump  LMB attack  RMB block", hintStyle);
+        GUI.Label(new Rect(20, 65, 620, 30), "WASD move  Shift sprint  Space jump  LMB attack  RMB block  Q shoot fire orb", hintStyle);
     }
 }

@@ -14,6 +14,7 @@ public class ThirdPersonCamera : MonoBehaviour
     private float currentY = 15.0f;
     public float minYAngle = -20.0f;
     public float maxYAngle = 80.0f;
+    private bool inputLocked;
 
     void Start()
     {
@@ -35,7 +36,7 @@ public class ThirdPersonCamera : MonoBehaviour
             if (target == null) return;
         }
 
-        if (Mouse.current != null)
+        if (!inputLocked && Mouse.current != null)
         {
             Vector2 mouseDelta = Mouse.current.delta.ReadValue();
             currentX += mouseDelta.x * mouseSensitivity;
@@ -63,5 +64,10 @@ public class ThirdPersonCamera : MonoBehaviour
         transform.position = Vector3.Lerp(transform.position, resolvedPosition, 1f - Mathf.Exp(-followSmoothing * Time.deltaTime));
         Quaternion lookRotation = Quaternion.LookRotation((target.position + offset) - transform.position);
         transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, 1f - Mathf.Exp(-rotationSmoothing * Time.deltaTime));
+    }
+
+    public void SetInputLocked(bool locked)
+    {
+        inputLocked = locked;
     }
 }

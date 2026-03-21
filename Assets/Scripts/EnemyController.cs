@@ -1,9 +1,12 @@
 using UnityEngine;
 using UnityEngine.AI;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(NavMeshAgent))]
 public class EnemyController : MonoBehaviour
 {
+    private static readonly HashSet<EnemyController> ActiveEnemies = new HashSet<EnemyController>();
+
     public float health = 30f;
     public float attackRange = 2.0f;
     public float attackCooldown = 1.6f;
@@ -48,6 +51,12 @@ public class EnemyController : MonoBehaviour
     };
 
     private float maxHealth;
+    private float baseAgentSpeed;
+    private float burnTimeRemaining;
+    private float burnTickTimer;
+    private float burnDamagePerSecond;
+    private float slowTimeRemaining;
+    private float slowMoveMultiplier = 1f;
     private NavMeshAgent agent;
     private Transform player;
     private PlayerController playerController;
@@ -64,6 +73,20 @@ public class EnemyController : MonoBehaviour
     private string hitAnim = string.Empty;
     private string dieAnim = string.Empty;
 
+    void OnEnable()
+    {
+        ActiveEnemies.Add(this);
+    }
+
+    void OnDisable()
+    {
+        ActiveEnemies.Remove(this);
+    }
+
+    void OnDestroy()
+    {
+        ActiveEnemies.Remove(this);
+    }
 
     void Start()
     {
@@ -74,6 +97,7 @@ public class EnemyController : MonoBehaviour
         maxHealth = health;
         agent = GetComponent<NavMeshAgent>();
         agent.updateRotation = false;
+        baseAgentSpeed = agent.speed;
         animator = ResolveAnimator();
 
         if (animator != null)
@@ -115,6 +139,9 @@ public class EnemyController : MonoBehaviour
     void Update()
     {
         if (isDead || player == null) return;
+
+        UpdateStatusEffects();
+        bool isMoving = false;
 
         float distanceToPlayer = Vector3.Distance(transform.position, player.position);
 
@@ -160,7 +187,10 @@ public class EnemyController : MonoBehaviour
             agent.SetDestination(player.position);
             RotateTowards(agent.desiredVelocity);
 
-            if (agent.velocity.magnitude > 0.1f)
+            float navigationSpeed = Mathf.Max(agent.velocity.magnitude, agent.desiredVelocity.magnitude);
+            isMoving = navigationSpeed > 0.03f && (!agent.hasPath || agent.remainingDistance > agent.stoppingDistance);
+
+            if (isMoving)
             {
                 PlayAnimation(moveAnim, 0.12f);
             }
@@ -169,14 +199,24 @@ public class EnemyController : MonoBehaviour
                 PlayAnimation(idleAnim, 0.12f);
             }
         }
+
+        UpdateAnimationPlaybackSpeed(isMoving);
     }
 
     public void TakeDamage(float damage)
     {
+        TakeDamage(damage, true);
+    }
+
+    public void TakeDamage(float damage, bool playHitReaction)
+    {
         if (isDead) return;
 
         health -= damage;
-        PlayAnimation(hitAnim, 0.05f, true);
+        if (playHitReaction)
+        {
+            PlayAnimation(hitAnim, 0.05f, true);
+        }
 
         if (health <= 0)
         {
@@ -187,6 +227,7 @@ public class EnemyController : MonoBehaviour
     void Die()
     {
         isDead = true;
+        ActiveEnemies.Remove(this);
         agent.isStopped = true;
         agent.enabled = false;
 
@@ -199,8 +240,93 @@ public class EnemyController : MonoBehaviour
 
         if (waveSpawner != null)
         {
-            waveSpawner.EnemyDefeated();
+            waveSpawner.EnemyDefeated(transform.position);
         }
+    }
+
+    void UpdateStatusEffects()
+    {
+        if (burnTimeRemaining > 0f)
+        {
+            burnTimeRemaining -= Time.deltaTime;
+            burnTickTimer -= Time.deltaTime;
+
+            if (burnTickTimer <= 0f)
+            {
+                burnTickTimer = 1f;
+                TakeDamage(burnDamagePerSecond, false);
+            }
+        }
+
+        if (slowTimeRemaining > 0f)
+        {
+            slowTimeRemaining -= Time.deltaTime;
+        }
+        else
+        {
+            slowMoveMultiplier = 1f;
+        }
+
+        if (agent != null && agent.enabled)
+        {
+            agent.speed = baseAgentSpeed * slowMoveMultiplier;
+        }
+    }
+
+    public void ApplyBurn(float duration, float damagePerSecond)
+    {
+        if (isDead || duration <= 0f || damagePerSecond <= 0f)
+        {
+            return;
+        }
+
+        burnTimeRemaining = Mathf.Max(burnTimeRemaining, duration);
+        burnDamagePerSecond = Mathf.Max(burnDamagePerSecond, damagePerSecond);
+        burnTickTimer = Mathf.Min(burnTickTimer, 0.15f);
+    }
+
+    public void ApplySlow(float duration, float moveMultiplier)
+    {
+        if (isDead || duration <= 0f)
+        {
+            return;
+        }
+
+        slowTimeRemaining = Mathf.Max(slowTimeRemaining, duration);
+        slowMoveMultiplier = Mathf.Clamp(Mathf.Min(slowMoveMultiplier, moveMultiplier), 0.2f, 1f);
+    }
+
+    void UpdateAnimationPlaybackSpeed(bool isMoving)
+    {
+        if (animator == null)
+        {
+            return;
+        }
+
+        animator.speed = isMoving ? Mathf.Clamp(slowMoveMultiplier, 0.45f, 1f) : 1f;
+    }
+
+    public static EnemyController FindClosestAlive(Vector3 worldPosition, float maxDistance)
+    {
+        EnemyController closestEnemy = null;
+        float closestDistanceSqr = maxDistance * maxDistance;
+
+        foreach (EnemyController enemy in ActiveEnemies)
+        {
+            if (enemy == null || enemy.isDead)
+            {
+                continue;
+            }
+
+            float distanceSqr = (enemy.transform.position - worldPosition).sqrMagnitude;
+            if (distanceSqr < closestDistanceSqr)
+            {
+                closestDistanceSqr = distanceSqr;
+                closestEnemy = enemy;
+            }
+        }
+
+        return closestEnemy;
     }
 
     void RotateTowards(Vector3 direction)

@@ -12,8 +12,11 @@ public class WaveSpawner : MonoBehaviour
     public int baseEnemyCount = 3;
     public float spawnRadius = 15f;
 
+    public event System.Action<int> WaveCleared;
+    public event System.Action<Vector3> EnemyKilled;
+
     private int enemiesAlive = 0;
-    private Coroutine nextWaveRoutine;
+    private bool waitingForNextWave;
 
     void Start()
     {
@@ -34,12 +37,24 @@ public class WaveSpawner : MonoBehaviour
             return;
         }
 
+        waitingForNextWave = false;
         int enemiesToSpawn = baseEnemyCount + (currentWave * 2);
 
         for (int i = 0; i < enemiesToSpawn; i++)
         {
             SpawnEnemy();
         }
+    }
+
+    public void StartNextWave()
+    {
+        if (!waitingForNextWave)
+        {
+            return;
+        }
+
+        currentWave++;
+        StartWave();
     }
 
     void SpawnEnemy()
@@ -68,28 +83,16 @@ public class WaveSpawner : MonoBehaviour
         Debug.LogWarning("WaveSpawner could not find a valid NavMesh position for an enemy.");
     }
 
-    public void EnemyDefeated()
+    public void EnemyDefeated(Vector3 deathPosition)
     {
         enemiesAlive--;
+        EnemyKilled?.Invoke(deathPosition);
         if (enemiesAlive <= 0)
         {
             enemiesAlive = 0;
-            currentWave++;
-
-            if (nextWaveRoutine != null)
-            {
-                StopCoroutine(nextWaveRoutine);
-            }
-
-            nextWaveRoutine = StartCoroutine(StartNextWaveAfterDelay(3f));
+            waitingForNextWave = true;
+            WaveCleared?.Invoke(currentWave);
         }
-    }
-
-    IEnumerator StartNextWaveAfterDelay(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        nextWaveRoutine = null;
-        StartWave();
     }
 
     void OnGUI()
@@ -100,6 +103,7 @@ public class WaveSpawner : MonoBehaviour
         style.fontStyle = FontStyle.Bold;
         style.alignment = TextAnchor.UpperRight;
 
-        GUI.Label(new Rect(Screen.width - 220, 25, 200, 30), $"WAVE: {currentWave}  |  Enemies: {enemiesAlive}", style);
+        string statusText = waitingForNextWave ? "SHOP" : enemiesAlive.ToString();
+        GUI.Label(new Rect(Screen.width - 260, 25, 240, 30), $"WAVE: {currentWave}  |  Enemies: {statusText}", style);
     }
 }
