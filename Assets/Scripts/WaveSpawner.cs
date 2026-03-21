@@ -9,14 +9,20 @@ public class WaveSpawner : MonoBehaviour
     public Transform player;
 
     public int currentWave = 1;
-    public int baseEnemyCount = 3;
-    public float spawnRadius = 15f;
+    public int baseEnemyCount = 2;
+    public int enemiesAddedPerWave = 1;
+    public float minSpawnRadius = 12f;
+    public float maxSpawnRadius = 18f;
+    public float minSpawnSeparation = 4.5f;
+    public float waveHealthBonus = 24f;
+    public float waveDamageBonus = 4f;
 
     public event System.Action<int> WaveCleared;
     public event System.Action<Vector3> EnemyKilled;
 
     private int enemiesAlive = 0;
     private bool waitingForNextWave;
+    private readonly List<Vector3> waveSpawnPositions = new List<Vector3>();
 
     void Start()
     {
@@ -38,7 +44,8 @@ public class WaveSpawner : MonoBehaviour
         }
 
         waitingForNextWave = false;
-        int enemiesToSpawn = baseEnemyCount + (currentWave * 2);
+        waveSpawnPositions.Clear();
+        int enemiesToSpawn = baseEnemyCount + Mathf.Max(0, currentWave - 1) * enemiesAddedPerWave;
 
         for (int i = 0; i < enemiesToSpawn; i++)
         {
@@ -59,28 +66,59 @@ public class WaveSpawner : MonoBehaviour
 
     void SpawnEnemy()
     {
-        const int maxSpawnAttempts = 10;
+        const int maxSpawnAttempts = 18;
 
         for (int attempt = 0; attempt < maxSpawnAttempts; attempt++)
         {
-            Vector2 randomCircle = Random.insideUnitCircle.normalized * spawnRadius;
-            Vector3 spawnPos = player.position + new Vector3(randomCircle.x, 0f, randomCircle.y);
+            Vector2 randomDirection = Random.insideUnitCircle.normalized;
+            if (randomDirection.sqrMagnitude < 0.001f)
+            {
+                randomDirection = Vector2.up;
+            }
+
+            float spawnDistance = Random.Range(minSpawnRadius, maxSpawnRadius);
+            Vector3 spawnPos = player.position + new Vector3(randomDirection.x, 0f, randomDirection.y) * spawnDistance;
 
             if (NavMesh.SamplePosition(spawnPos, out NavMeshHit hit, 10f, NavMesh.AllAreas))
             {
+                if (!IsFarEnoughFromOtherSpawns(hit.position))
+                {
+                    continue;
+                }
+
                 GameObject enemyObj = Instantiate(GoblinEnemy, hit.position, Quaternion.identity);
                 EnemyController ec = enemyObj.GetComponent<EnemyController>();
                 if (ec != null)
                 {
-                    ec.InitializeStats((currentWave - 1) * 15f, (currentWave - 1) * 3f);
+                    ec.InitializeStats((currentWave - 1) * waveHealthBonus, (currentWave - 1) * waveDamageBonus);
                 }
 
+                waveSpawnPositions.Add(hit.position);
                 enemiesAlive++;
                 return;
             }
         }
 
         Debug.LogWarning("WaveSpawner could not find a valid NavMesh position for an enemy.");
+    }
+
+    bool IsFarEnoughFromOtherSpawns(Vector3 position)
+    {
+        for (int i = 0; i < waveSpawnPositions.Count; i++)
+        {
+            Vector3 existing = waveSpawnPositions[i];
+            existing.y = 0f;
+
+            Vector3 candidate = position;
+            candidate.y = 0f;
+
+            if (Vector3.Distance(existing, candidate) < minSpawnSeparation)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public void EnemyDefeated(Vector3 deathPosition)
